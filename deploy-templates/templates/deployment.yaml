@@ -1,0 +1,83 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Chart.Name }}
+  labels:
+    {{- include "headlamp.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "headlamp.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "headlamp.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "headlamp.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{ if .Values.config.oidc.enabled }}
+          env:
+          - name: CLIENT_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.config.oidc.clientSecretName }}
+                key: {{ .Values.config.oidc.clientSecretKey }}
+          {{ end }}
+          args:
+            - "-in-cluster"
+            - "-plugins-dir=/headlamp/plugins"
+            {{ if .Values.config.oidc.enabled }}
+            {{- with .Values.config.oidc.clientID }}
+            - "-oidc-client-id={{ . }}"
+            {{- end }}
+            - "-oidc-client-secret=$(CLIENT_SECRET)"
+            - "-oidc-idp-issuer-url={{ .Values.global.keycloakUrl }}/auth/realms/{{ .Values.config.oidc.issuerRealm }}"
+            {{- with .Values.config.oidc.scopes }} issuerRealm
+            - "-oidc-scopes={{ . }}"
+            {{- end }}
+            {{ end }}
+            {{- with .Values.config.baseURL }}
+            - "-base-url={{ . }}"
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 4466
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
